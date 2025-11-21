@@ -63,8 +63,7 @@ def make_colorwheel():
     colorwheel[col:col+MR, 0] = 255
     return colorwheel
 
-
-def flow_uv_to_colors(u, v, convert_to_bgr=False):
+def flow_uv_to_colors(u, v, convert_to_bgr=False, black=False, gamma=1.0):
     """
     Applies the flow color wheel to (possibly clipped) flow components u and v.
 
@@ -75,6 +74,8 @@ def flow_uv_to_colors(u, v, convert_to_bgr=False):
         u (np.ndarray): Input horizontal flow of shape [H,W]
         v (np.ndarray): Input vertical flow of shape [H,W]
         convert_to_bgr (bool, optional): Convert output image to BGR. Defaults to False.
+        black (bool, optional): Whether zero-flow maps to black. Defaults to False.
+        gamma (float, optional): Radial gamma. Defaults to 1.0.
 
     Returns:
         np.ndarray: Flow visualization image of shape [H,W,3]
@@ -94,16 +95,22 @@ def flow_uv_to_colors(u, v, convert_to_bgr=False):
         col0 = tmp[k0] / 255.0
         col1 = tmp[k1] / 255.0
         col = (1-f)*col0 + f*col1
+
+        rad_gamma = rad ** gamma
         idx = (rad <= 1)
-        col[idx]  = 1 - rad[idx] * (1-col[idx])
+        if not black:
+            col[idx]  = 1 - rad_gamma[idx] * (1-col[idx])
+        else:
+            col[idx]  = rad_gamma[idx] * col[idx]
         col[~idx] = col[~idx] * 0.75   # out of range
+
         # Note the 2-i => BGR instead of RGB
         ch_idx = 2-i if convert_to_bgr else i
         flow_image[:,:,ch_idx] = np.floor(255 * col)
     return flow_image
 
 
-def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
+def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False, black=False, gamma=1.0):
     """
     Expects a two dimensional flow image of shape.
 
@@ -111,6 +118,8 @@ def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
         flow_uv (np.ndarray): Flow UV image of shape [H,W,2]
         clip_flow (float, optional): Clip maximum of flow values. Defaults to None.
         convert_to_bgr (bool, optional): Convert output image to BGR. Defaults to False.
+        black (bool, optional): Whether zero-flow maps to black. Defaults to False.
+        gamma (float, optional): Radial gamma. Defaults to 1.0.
 
     Returns:
         np.ndarray: Flow visualization image of shape [H,W,3]
@@ -126,4 +135,31 @@ def flow_to_color(flow_uv, clip_flow=None, convert_to_bgr=False):
     epsilon = 1e-5
     u = u / (rad_max + epsilon)
     v = v / (rad_max + epsilon)
-    return flow_uv_to_colors(u, v, convert_to_bgr)
+    return flow_uv_to_colors(u, v, convert_to_bgr, black, gamma)
+
+def render_colorwheel(size=512, black=False, gamma=1.0, convert_to_bgr=False):
+    """
+    Generates a disk of (u,v) values and visualizes it using flow_to_color().
+
+    Args:
+        size (int): Width/height of output image.
+        black (bool): Whether zero-flow maps to black (your new option).
+        gamma (float): Radial gamma.
+        convert_to_bgr (bool): If True, output uses BGR channel order.
+
+    Returns:
+        np.ndarray: Colorwheel visualization [H,W,3]
+    """
+    x = np.linspace(-1, 1, size)
+    y = np.linspace(1, -1, size)
+    X, Y = np.meshgrid(x, y)
+    R = np.sqrt(X**2 + Y**2)
+    mask = R <= 1.0
+
+    flow = np.zeros((size, size, 2), dtype=np.float32)
+    flow[..., 0] = X
+    flow[..., 1] = Y
+    flow[~mask] = 0
+
+    img = flow_to_color(flow, convert_to_bgr=convert_to_bgr, black=black, gamma=gamma)
+    return img
